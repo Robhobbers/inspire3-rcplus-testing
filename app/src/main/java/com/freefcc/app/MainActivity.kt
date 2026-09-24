@@ -220,7 +220,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     GlowButton("Connect", Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
                 }
                 state.isFccEnabled -> {
-                    BodyText("FCC mode is active.", Green)
+                    BodyText(state.message.ifEmpty { "FCC commands sent; RF mode unverified." }, Green)
                     Spacer(Modifier.height(20.dp))
                     GlowButton("Stop FCC Mode", Red, enabled = !state.isHardwareBusy) { viewModel.disableFcc() }
                     Spacer(Modifier.height(12.dp))
@@ -1079,14 +1079,14 @@ private fun ModeBadge(state: AppState) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (active) "FCC" else "CE",
+                if (active) "SENT" else "?",
                 color = if (active) Green else TextWhite,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Black
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (active) "High-power region active" else "Default region",
+                if (active) "RF mode unverified" else "No RF mode measurement",
                 color = if (active) Green.copy(0.7f) else TextGray,
                 fontSize = 12.sp
             )

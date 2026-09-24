@@ -32,6 +32,19 @@ data class DumlFrame(
     val payload: ByteArray
 )
 
+/** A matching reply proves DUML framing, not a change in radio output. */
+data class FrameDiagnostic(
+    val round: Int,
+    val index: Int,
+    val framesPerRound: Int,
+    val port: Int,
+    val request: ByteArray,
+    val response: ByteArray,
+    val status: String,
+    val payload: ByteArray?,
+    val written: Boolean
+)
+
 /**
  * Builds wire-format DUML frames from structured input.
  *
@@ -232,7 +245,7 @@ class DumlTransport {
     }
 
     /**
-     * Sends a list of frames over multiple rounds, discarding ACKs.
+     * Sends a list of frames over multiple rounds; optionally records raw replies.
      * Automatically finds the correct DUML port for the controller type.
      *
      * Uses pipelined short-lived TCP connections (one frame per connection,
@@ -252,6 +265,7 @@ class DumlTransport {
         interRoundDelayMs: Long = 0,
         readWindowMs: Int = 80,
         port: Int = PORT,
+        onDiagnostic: ((FrameDiagnostic) -> Unit)? = null,
         onProgress: (Float) -> Unit = {}
     ): Boolean {
         if (frames.isEmpty()) return false
@@ -268,8 +282,13 @@ class DumlTransport {
         var sent = 0
 
         for (round in 0 until rounds) {
-            for (frame in frames) {
-                results.add(sendOneFrame(frame, readWindowMs, effectivePort))
+            for ((index, frame) in frames.withIndex()) {
+                val written = if (onDiagnostic == null) {
+                    sendOneFrame(frame, readWindowMs, effectivePort)
+                } else {
+                    sendOneFrameDiagnostic(frame, readWindowMs, effectivePort, round + 1, index + 1, frames.size, onDiagnostic)
+                }
+                results.add(written)
                 sent++
                 onProgress(sent.toFloat() / totalSends)
                 if (interFrameDelayMs > 0) Thread.sleep(interFrameDelayMs)
@@ -637,6 +656,70 @@ class DumlTransport {
             return true
         } catch (_: IOException) { return false }
         finally { try { socket?.close() } catch (_: IOException) {} }
+    }
+
+    /** Same write and timeout as the original path, retaining replies for inspection. */
+    private fun sendOneFrameDiagnostic(
+        frame: ByteArray,
+        readWindowMs: Int,
+        port: Int,
+        round: Int,
+        index: Int,
+        framesPerRound: Int,
+        onDiagnostic: (FrameDiagnostic) -> Unit
+    ): Boolean {
+        var socket: Socket? = null
+        var written = false
+        var response = ByteArray(0)
+        var error: String? = null
+        try {
+            socket = Socket()
+            socket.connect(InetSocketAddress(HOST, port), CONNECT_TIMEOUT_MS)
+            socket.tcpNoDelay = true
+            socket.soTimeout = maxOf(readWindowMs.coerceAtMost(120), 20)
+            socket.getOutputStream().apply { write(frame); flush() }
+            written = true
+            response = readDiagnosticFrame(socket.getInputStream())
+        } catch (e: IOException) {
+            error = if (written) "READ_ERROR" else "WRITE_ERROR"
+        } finally {
+            try { socket?.close() } catch (_: IOException) {}
+        }
+        val payload = if (response.isNotEmpty()) DumlBuilder.validateResponse(frame, response) else null
+        val status = when {
+            !written -> error ?: "WRITE_ERROR"
+            payload != null -> "VALID_MATCHING_REPLY"
+            response.isEmpty() -> error ?: "NO_REPLY"
+            response.size < 13 -> "PARTIAL_REPLY"
+            response[0] != 0x55.toByte() || (response.size >= 4 &&
+                response[1] == 0xCC.toByte() && response[2] == 0x30.toByte() &&
+                response[3] == 0x75.toByte()) -> "UNRECOGNIZED_REPLY"
+            ((response[1].toInt() and 0xFF) or ((response[2].toInt() and 0x03) shl 8)) > response.size -> "PARTIAL_REPLY"
+            else -> "INVALID_OR_UNMATCHED_REPLY"
+        }
+        onDiagnostic(FrameDiagnostic(round, index, framesPerRound, port, frame, response, status, payload, written))
+        return written
+    }
+
+    /** Read up to one whole DUML frame, retaining incomplete bytes on timeout. */
+    private fun readDiagnosticFrame(input: java.io.InputStream): ByteArray {
+        val data = ByteArrayOutputStream()
+        val chunk = ByteArray(1023)
+        while (data.size() < 1023) {
+            val n = try { input.read(chunk, 0, minOf(chunk.size, 1023 - data.size())) }
+                    catch (_: IOException) { break }
+            if (n <= 0) break
+            data.write(chunk, 0, n)
+            val bytes = data.toByteArray()
+            if (bytes.size >= 3) {
+                if (bytes[0] != 0x55.toByte() || (bytes.size >= 4 &&
+                    bytes[1] == 0xCC.toByte() && bytes[2] == 0x30.toByte() &&
+                    bytes[3] == 0x75.toByte())) break
+                val length = (bytes[1].toInt() and 0xFF) or ((bytes[2].toInt() and 0x03) shl 8)
+                if (length !in 13..1023 || bytes.size >= length) break
+            }
+        }
+        return data.toByteArray()
     }
 
     /**

@@ -51,6 +51,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Debug signing cannot update the release app. Install alongside it.
+            applicationIdSuffix = ".diagnostics"
+            versionNameSuffix = "-i3-diagnostics"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

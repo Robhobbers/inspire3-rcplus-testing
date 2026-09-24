@@ -138,7 +138,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun init() {
         val model = try { Build.DEVICE } catch (_: Exception) { "unknown" }
-        val autoEnabled = prefs.getBoolean("auto_fcc", false)
+        // Diagnostic builds require a deliberate manual apply.
+        val autoEnabled = false
+        prefs.edit().putBoolean("auto_fcc", false).apply()
         // Sync the keepalive toggle with the persistent flag so the UI is
         // correct after a process restart (e.g. low-memory kill + sticky restart).
         val keepaliveRunning = FccKeepaliveService.isRunningFlagSet(app)
@@ -160,10 +162,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * The setting is saved to SharedPreferences and persists across restarts.
      */
     fun toggleAutoFcc() {
-        val newValue = !_state.value.autoFcc
-        prefs.edit().putBoolean("auto_fcc", newValue).apply()
-        update { copy(autoFcc = newValue) }
-        log(if (newValue) "Auto-FCC enabled — will auto-connect on next launch" else "Auto-FCC disabled")
+        log("Auto-FCC is disabled in this diagnostic build; use manual Enable FCC Mode.")
     }
 
     /**
@@ -337,27 +336,44 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 val profile = Profiles.load(app, "fcc.json")
                 log("Loaded FCC profile: ${profile.frames.size} frames, ${profile.rounds} rounds")
 
+                val diagnostics = mutableListOf<FrameDiagnostic>()
+                android.util.Log.i("FreeFCC-Diag", "BEGIN FCC profile frames=${profile.frames.size} rounds=${profile.rounds}")
                 val success = transport.sendFrames(
                     frames = profile.frames,
                     rounds = profile.rounds,
                     interFrameDelayMs = profile.interFrameDelay,
                     interRoundDelayMs = profile.interRoundDelay,
                     readWindowMs = profile.readWindowMs,
-                    port = profile.port
+                    port = profile.port,
+                    onDiagnostic = { result ->
+                        diagnostics.add(result)
+                        val tag = "R${result.round} ${result.index}/${result.framesPerRound}"
+                        val hex = { bytes: ByteArray -> bytes.joinToString("") { "%02X".format(it.toInt() and 0xFF) } }
+                        android.util.Log.i("FreeFCC-Diag",
+                            "$tag port=${result.port} status=${result.status} " +
+                            "TX=${hex(result.request)} RX=${hex(result.response)} " +
+                            "payload=${result.payload?.let(hex) ?: "-"}")
+                        log("$tag set=${result.request[9].toInt() and 0xFF} " +
+                            "id=${result.request[10].toInt() and 0xFF} ${result.status} " +
+                            "payload=${result.payload?.let(hex) ?: "-"}")
+                    }
                 ) { progress -> update { copy(busyProgress = progress) } }
 
+                val matches = diagnostics.count { it.status == "VALID_MATCHING_REPLY" }
+                android.util.Log.i("FreeFCC-Diag",
+                    "END FCC writes=${diagnostics.count { it.written }}/${diagnostics.size} matching_replies=$matches")
                 if (success) {
                     update {
                         copy(
                             status = "fcc_enabled",
-                            message = "FCC mode enabled",
+                            message = "Commands sent; RF mode unverified. $matches/${diagnostics.size} matching replies.",
                             isFccEnabled = true,
                             isBusy = false,
                             busyProgress = 1f,
                             isConnected = true
                         )
                     }
-                    log("FCC mode enabled — ${profile.frames.size} frames sent")
+                    log("FCC commands written. $matches/${diagnostics.size} matching replies; RF mode unverified.")
                 } else {
                     update {
                         copy(

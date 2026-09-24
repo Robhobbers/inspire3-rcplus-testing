@@ -17,7 +17,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="FreeFCC"
+        android:label="FreeFCC Diagnostics"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.FreeFCC"
@@ -40,7 +40,7 @@
 
         <receiver
             android:name=".BootReceiver"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
