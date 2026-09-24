@@ -269,7 +269,35 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                         BodyText("Tap the button below to enable FCC mode.")
                         Spacer(Modifier.height(20.dp))
                     }
-                    GlowButton("Enable FCC Mode", Cyan, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
+                    BodyText(
+                        if (state.fcReplyObserved) "Aircraft query: matching flight-controller reply observed"
+                        else "Aircraft query: no matching flight-controller reply (link unverified)",
+                        if (state.fcReplyObserved) Green else Amber
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    GlowButton(
+                        if (state.isCheckingAircraft) "Checking aircraft..." else "Recheck Aircraft Reply",
+                        Amber, filled = false,
+                        enabled = !state.isHardwareBusy && !state.isCheckingAircraft
+                    ) { viewModel.checkAircraftLink() }
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = state.pilot2LinkConfirmed,
+                            onCheckedChange = { viewModel.confirmPilot2Link(it) },
+                            enabled = !state.isHardwareBusy
+                        )
+                        Text(
+                            "I can see the live Inspire 3 link in DJI Pilot 2",
+                            color = TextWhite,
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    GlowButton("Enable FCC Mode", Cyan,
+                        enabled = !state.isHardwareBusy && state.pilot2LinkConfirmed
+                    ) { viewModel.enableFcc() }
                 }
             }
 
@@ -487,6 +515,14 @@ private fun InfoPage(state: AppState, viewModel: FccViewModel) {
                 "Local DUML proxy",
                 if (state.isConnected) "Reachable (aircraft unverified)" else "Unavailable",
                 valueColor = if (state.isConnected) Green else TextGray
+            )
+            Spacer(Modifier.height(10.dp))
+            DividerLine()
+            Spacer(Modifier.height(10.dp))
+            InfoRow(
+                "Flight-controller reply",
+                if (state.fcReplyObserved) "Matching reply observed" else "None observed",
+                valueColor = if (state.fcReplyObserved) Green else TextGray
             )
             Spacer(Modifier.height(10.dp))
             DividerLine()

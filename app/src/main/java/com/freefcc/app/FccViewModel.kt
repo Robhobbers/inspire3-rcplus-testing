@@ -26,6 +26,9 @@ data class AppState(
     val status: String = "idle",
     val message: String = "",
     val isConnected: Boolean = false,
+    val fcReplyObserved: Boolean = false,
+    val isCheckingAircraft: Boolean = false,
+    val pilot2LinkConfirmed: Boolean = false,
     val isFccEnabled: Boolean = false,
     val is4gBusy: Boolean = false,
     val fourGMessage: String = "",
@@ -277,7 +280,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             log("Hardware busy — please wait for the current operation to finish.")
             return
         }
-        update { copy(status = "connecting", message = "Checking controller DUML proxy...") }
+        update { copy(status = "connecting", message = "Checking controller DUML proxy...",
+            fcReplyObserved = false, pilot2LinkConfirmed = false) }
         log("Checking controller DUML proxy...")
 
         runOnIO {
@@ -288,6 +292,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     if (detectedPort > 0) {
                         log("DUML port detected: $detectedPort")
                     }
+                    val fcReply = transport.probeFlightControllerReply()
+                    log(if (fcReply) "Matching flight-controller reply observed"
+                        else "No matching flight-controller reply; aircraft link unverified")
                     val serial = transport.probeSerial(1500)
                     if (serial.isNotEmpty()) {
                         prefs.edit().putString("aircraft_serial", serial).apply()
@@ -295,11 +302,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     update {
                         copy(
                             status = "connected",
-                            message = if (serial.isNotEmpty())
-                                "Aircraft serial observed: $serial. Confirm a live link in DJI Pilot 2 before applying."
+                            message = if (fcReply)
+                                "Matching flight-controller reply observed. Confirm a live link in DJI Pilot 2 before applying."
                             else
-                                "Local DUML proxy reachable. Aircraft link unverified; confirm a live link in DJI Pilot 2 before applying.",
+                                "Local DUML reachable; no matching flight-controller reply. Aircraft link unverified.",
                             isConnected = true,
+                            fcReplyObserved = fcReply,
                             aircraftSerial = serial
                         )
                     }
@@ -310,7 +318,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         copy(
                             status = "disconnected",
                             message = "Controller DUML proxy unavailable.",
-                            isConnected = false
+                            isConnected = false,
+                            fcReplyObserved = false
                         )
                     }
                     log("Controller DUML proxy unavailable")
@@ -321,6 +330,35 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Re-run the read-only aircraft inquiry after powering on and linking. */
+    fun checkAircraftLink() {
+        if (!_state.value.isConnected || !beginHardwareOp()) return
+        update { copy(isCheckingAircraft = true) }
+        runOnIO {
+            try {
+                val fcReply = transport.probeFlightControllerReply()
+                update { copy(
+                    isCheckingAircraft = false,
+                    fcReplyObserved = fcReply,
+                    message = if (fcReply) "Matching flight-controller reply observed. Confirm the live Pilot 2 link."
+                              else "No matching flight-controller reply. Check Pilot 2 for a live link."
+                ) }
+                log(if (fcReply) "Matching flight-controller reply observed"
+                    else "No matching flight-controller reply; aircraft link unverified")
+            } finally {
+                update { copy(isCheckingAircraft = false) }
+                endHardwareOp()
+            }
+        }
+    }
+
+    /** Explicit user confirmation; a controller proxy or cached serial is insufficient. */
+    fun confirmPilot2Link(confirmed: Boolean) {
+        update { copy(pilot2LinkConfirmed = confirmed) }
+        log(if (confirmed) "User confirmed a live aircraft link in DJI Pilot 2"
+            else "Pilot 2 aircraft-link confirmation cleared")
+    }
+
     // --- FCC ---
 
     /**
@@ -328,6 +366,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * The profile already runs 2 rounds internally for reliability.
      */
     fun enableFcc() {
+        if (!_state.value.pilot2LinkConfirmed) {
+            log("Confirm a live aircraft link in DJI Pilot 2 before sending FCC commands.")
+            update { copy(message = "Confirm a live aircraft link in DJI Pilot 2 first.") }
+            return
+        }
         if (!beginHardwareOp()) {
             log("Hardware busy — please wait for the current operation to finish.")
             return

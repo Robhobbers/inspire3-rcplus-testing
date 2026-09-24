@@ -348,6 +348,24 @@ class DumlTransport {
     }
 
     /**
+     * Read-only inquiry addressed to the aircraft flight controller (device 3).
+     * Only a CRC-valid response with reversed routing and the same sequence /
+     * command counts. A reachable controller proxy alone never passes this check.
+     * No response means "not verified", not proof the aircraft is absent.
+     */
+    fun probeFlightControllerReply(perQueryMs: Int = 800): Boolean {
+        val builder = DumlBuilder()
+        for (cmdId in listOf(87, 1)) {
+            val request = builder.buildFrame(DumlFrame(
+                sender = 42, cmdType = 0x40, cmdSet = 0, cmdId = cmdId,
+                dst = 3, payload = ByteArray(0)
+            ))
+            if (sendAndReceive(request, perQueryMs) != null) return true
+        }
+        return false
+    }
+
+    /**
      * Probes for the aircraft serial number.
      *
      * Strategy (most reliable first):
