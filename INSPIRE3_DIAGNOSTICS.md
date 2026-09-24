@@ -24,7 +24,9 @@ In one terminal start a local log capture:
 adb logcat -s FreeFCC-Diag:I '*:S' > inspire3-fcc-diagnostics.txt
 ```
 
-On the controller open **FreeFCC Diagnostics**, tap **Connect**, then tap
+On the controller open **FreeFCC Diagnostics** and tap **Check DUML Proxy**.
+This checks the controller's local service only; it cannot confirm the aircraft
+link. Confirm that DJI Pilot 2 shows the live aircraft before tapping
 **Enable FCC Mode** once. Stop logcat with Ctrl-C. The log contains BEGIN/END
 markers and one line per send: round, frame index, port, outcome, raw TX/RX
 hexadecimal, and any matching response payload. The app's Log tab also shows

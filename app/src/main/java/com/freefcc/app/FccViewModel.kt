@@ -269,21 +269,21 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     // --- Connection ---
 
     /**
-     * Connects to the DUML proxy, auto-detecting the correct port.
-     * Probes for the aircraft serial number after connecting.
+     * Checks only the controller's local DUML proxy. A reachable port does
+     * not establish that an aircraft is powered on or linked.
      */
     fun connect() {
         if (!beginHardwareOp()) {
             log("Hardware busy — please wait for the current operation to finish.")
             return
         }
-        update { copy(status = "connecting", message = "Connecting to controller...") }
-        log("Connecting to controller...")
+        update { copy(status = "connecting", message = "Checking controller DUML proxy...") }
+        log("Checking controller DUML proxy...")
 
         runOnIO {
             try {
                 if (transport.connect()) {
-                    log("Controller connected")
+                    log("Controller DUML proxy reachable; aircraft link unverified")
                     val detectedPort = transport.getDetectedPort()
                     if (detectedPort > 0) {
                         log("DUML port detected: $detectedPort")
@@ -295,21 +295,25 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     update {
                         copy(
                             status = "connected",
-                            message = if (serial.isNotEmpty()) "Connected — $serial" else "Connected. Ready to apply FCC.",
+                            message = if (serial.isNotEmpty())
+                                "Aircraft serial observed: $serial. Confirm a live link in DJI Pilot 2 before applying."
+                            else
+                                "Local DUML proxy reachable. Aircraft link unverified; confirm a live link in DJI Pilot 2 before applying.",
                             isConnected = true,
                             aircraftSerial = serial
                         )
                     }
-                    if (serial.isNotEmpty()) log("Aircraft serial: $serial")
+                    if (serial.isNotEmpty()) log("Aircraft serial observed: $serial (link still unverified)")
+                    else log("No aircraft serial observed; check the live link in DJI Pilot 2")
                 } else {
                     update {
                         copy(
                             status = "disconnected",
-                            message = "Controller not found. Make sure the drone is powered on and linked.",
+                            message = "Controller DUML proxy unavailable.",
                             isConnected = false
                         )
                     }
-                    log("Connection failed — is the drone powered on?")
+                    log("Controller DUML proxy unavailable")
                 }
             } finally {
                 endHardwareOp()

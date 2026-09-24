@@ -215,9 +215,9 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     ProgressDisplay(state.busyProgress, state.message)
                 }
                 !state.isConnected -> {
-                    BodyText("Connect your drone to the controller, then power it on.")
+                    BodyText("Check the controller's local DUML service. Verify the aircraft link in DJI Pilot 2 before applying FCC commands.")
                     Spacer(Modifier.height(20.dp))
-                    GlowButton("Connect", Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
+                    GlowButton("Check DUML Proxy", Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
                 }
                 state.isFccEnabled -> {
                     BodyText(state.message.ifEmpty { "FCC commands sent; RF mode unverified." }, Green)
@@ -484,8 +484,8 @@ private fun InfoPage(state: AppState, viewModel: FccViewModel) {
             DividerLine()
             Spacer(Modifier.height(10.dp))
             InfoRow(
-                "Status",
-                if (state.isConnected) "Connected" else "Disconnected",
+                "Local DUML proxy",
+                if (state.isConnected) "Reachable (aircraft unverified)" else "Unavailable",
                 valueColor = if (state.isConnected) Green else TextGray
             )
             Spacer(Modifier.height(10.dp))
@@ -991,9 +991,9 @@ private fun PageTitle(title: String, icon: androidx.compose.ui.graphics.vector.I
 private fun ConnectionPill(state: AppState) {
     val (label, color) = when {
         state.status == "connecting" -> "Connecting..." to Amber
-        state.isConnected -> "Connected" to Green
+        state.isConnected -> "DUML ready" to Green
         state.status == "error" -> "Error" to Red
-        else -> "Disconnected" to TextGray
+        else -> "DUML unchecked" to TextGray
     }
 
     // Bounce-in on state change (no scale overflow — use alpha + small bump)
